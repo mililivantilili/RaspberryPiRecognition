@@ -128,12 +128,6 @@ void* getSpiData( void* arg ){
 		//printf("%s %i \n", "Result[0] =", result[0]);
 		output_file.close();
 
-		std::ofstream output_file("/home/pi/test.txt");				//Will overwrite an existing file
-		output_file << result[0];
-		output_file << " ";
-		//printf("%s %i \n", "Result[0] =", result[0]);
-		output_file.close();
-
 		std::ofstream output_file2("/home/pi/test.txt", std::ios_base::app);	//Will append to an existing file
 		for(int i = 1; i < SAMPLE_NUM; i++){
 			output_file2 << result[i];
