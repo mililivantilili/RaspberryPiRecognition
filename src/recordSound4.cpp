@@ -13,6 +13,10 @@
 #include <wiringPiSPI.h>
 #include <fstream>
 
+#include <signal.h>
+#include <string.h>
+#include <sys/time.h>
+
 using namespace std;
 
 #define SAMPLE_NUM 10000
@@ -25,6 +29,17 @@ void endMelody(void);
 int SpiSetup(void);
 
 bool shutdown = true;
+
+unsigned short result[SAMPLE_NUM];
+
+static int count = 0;
+
+void timer_handler (int signum)
+{
+	result[count] = 0;
+	count += 1;
+	printf ("Timer expired %d times\n", count);
+}
 
 int main() {
 	printf ("%s \n", "Starting program...");
@@ -48,12 +63,31 @@ int main() {
 	//SPI inicializing
 	if(SpiSetup() == 0)
 	{
+		 struct sigaction sa;
+		 struct itimerval timer;
+		 /* Install timer_handler as the signal handler for SIGVTALRM. */
+		 memset (&sa, 0, sizeof (sa));
+		 sa.sa_handler = &timer_handler;
+		 sigaction (SIGVTALRM, &sa, NULL);
+		 /* Configure the timer to expire after 500 msec... */
+		  timer.it_value.tv_sec = 0;
+		  timer.it_value.tv_usec = 500000;
+		  /* ... and every 500 msec after that. */
+		  timer.it_interval.tv_sec = 0;
+		  timer.it_interval.tv_usec = 500000;
+		  /* Start a virtual timer. It counts down whenever this process is
+		    executing. */
+		  setitimer (ITIMER_VIRTUAL, &timer, NULL);
+		/*
 		pthread_create( &communication, NULL, &getSpiData, NULL );
+		*/
 	}
+
+
 
 	while(shutdown)
 	{
-		delay(100);
+		//delay(100);
 	}
 
 	printf ("%s \n", "End program");
@@ -120,7 +154,7 @@ void* getSpiData( void* arg ){
 			wiringPiSPIDataRW(CHANNEL, buffer, 2);
 			result[i] = (buffer[0] << 8) + buffer[1];
 			digitalWrite(8, 1);  // Low : CS Inactive
-			delay (1);// neco menim
+			delay (1);
 		}
 		std::ofstream output_file("/home/pi/test.txt");				//Will overwrite an existing file
 		output_file << result[0];
