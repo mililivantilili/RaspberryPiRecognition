@@ -120,7 +120,7 @@ void* getSpiData( void* arg ){
 			wiringPiSPIDataRW(CHANNEL, buffer, 2);
 			result[i] = (buffer[0] << 8) + buffer[1];
 			digitalWrite(8, 1);  // Low : CS Inactive
-			delay (1);
+			delay (1);// neco menim
 		}
 		std::ofstream output_file("/home/pi/test.txt");				//Will overwrite an existing file
 		output_file << result[0];
