@@ -37,8 +37,14 @@ static int count = 0;
 void timer_handler (int signum)
 {
 	result[count] = 0;
+	struct timeval ts;
+	gettimeofday(&ts, NULL);
 	count += 1;
-	printf ("Timer expired %d times\n", count);
+	if (count >= 100)
+	{
+		printf ("%d.%06d: timer expired %d times\n", ts.tv_sec, ts.tv_usec, count);
+		count = 0;
+	}
 }
 
 int main() {
