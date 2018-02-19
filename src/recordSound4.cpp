@@ -32,16 +32,17 @@ bool shutdown = true;
 
 unsigned short result[SAMPLE_NUM];
 
-static int count = 0;
+long count = 0;
 
 void timer_handler (int signum)
 {
-	result[count] = 0;
-	struct timeval ts;
-	gettimeofday(&ts, NULL);
+
 	count += 1;
 	if (count >= 100)
 	{
+		result[count] = 0;
+		struct timeval ts;
+		gettimeofday(&ts, NULL);
 		printf ("%d.%06d: timer expired %d times\n", ts.tv_sec, ts.tv_usec, count);
 		count = 0;
 	}
@@ -83,10 +84,10 @@ int main() {
 		  timer.it_interval.tv_usec = 500000;
 		  /* Start a virtual timer. It counts down whenever this process is
 		    executing. */
-		  setitimer (ITIMER_VIRTUAL, &timer, NULL);
-		/*
+		  //setitimer (ITIMER_VIRTUAL, &timer, NULL);
+
 		pthread_create( &communication, NULL, &getSpiData, NULL );
-		*/
+
 	}
 
 
@@ -148,7 +149,66 @@ void endMelody(void)
 }
 
 void* getSpiData( void* arg ){
-	while(true){
+
+	unsigned char buffer[2];
+	buffer[0] = 16;
+	unsigned short result[SAMPLE_NUM];
+
+	struct timeval current;
+	struct timeval start;
+	long us = 125;
+	long us2 = us;
+
+	gettimeofday(&start, NULL);
+
+	digitalWrite(8, 0);  // Low : CS Active
+	while(true)
+	{
+
+		buffer[0] = 4;	// 8 is channel 2, 4 is channel 1
+		buffer[1] = 0;
+		wiringPiSPIDataRW(CHANNEL, buffer, 2);
+		result[count] = (buffer[0] << 8) + buffer[1];
+
+
+		count ++;
+		if (count >= SAMPLE_NUM)
+		{
+			digitalWrite(8, 1);  // Low : CS Inactive
+			std::ofstream output_file("/home/pi/test.txt");				//Will overwrite an existing file
+			output_file << result[0];
+			output_file << " ";
+			//printf("%s %i \n", "Result[0] =", result[0]);
+			output_file.close();
+
+			std::ofstream output_file2("/home/pi/test.txt", std::ios_base::app);	//Will append to an existing file
+			for(int i = 1; i < SAMPLE_NUM; i++){
+				output_file2 << result[i];
+				output_file2 << " ";
+			}
+			output_file2.close();
+			//output_file.close();			//(Not strictly necessary as it will get closed when output_file goes out of scope)
+			shutdown = false;
+			printf ("%ld\n", count);
+			count = 0;
+		}
+
+		// Test timeru
+		/*count++;
+		if (count >= 10000)
+		{
+			printf ("%ld.%06ld: timer expired %ld times\n", start.tv_sec, start.tv_usec, count);
+			count = 0;
+		}*/
+
+		//čekání
+		do {
+	        gettimeofday(&current, NULL);
+	    } while( ( current.tv_usec + current.tv_sec*1000000 ) - ( start.tv_usec + start.tv_sec*1000000 ) <= us2 );
+		us2=2*us-(( current.tv_usec + current.tv_sec*1000000 ) - ( start.tv_usec + start.tv_sec*1000000 ));
+		start = current;
+	}
+	/*while(true){
 		unsigned char buffer[2];
 		buffer[0] = 16;
 		unsigned short result[SAMPLE_NUM];
@@ -177,7 +237,7 @@ void* getSpiData( void* arg ){
 		//output_file.close();			//(Not strictly necessary as it will get closed when output_file goes out of scope)
 		//shutdown = false;
 		delay(1000);
-	}
+	}*/
 	return 0;
 }
 
