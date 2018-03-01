@@ -19,15 +19,20 @@
 
 using namespace std;
 
-#define SAMPLE_NUM 10000
+#define SAMPLE_NUM 100000
 #define REPRO 25
 #define LED 21
 #define GET_DATA 1
 #define SET_RES 2
 #define SPI_SETUP 3
+#define START_GET_DATA 4
+#define END_GET_DATA 5
+#define DEFOULT 6
+#define SAVE_DATA 7
 #define CS0 10
 #define CS1 11
 #define CS2 3
+#define T_us 125
 
 static const int CHANNEL = 0;	// Channel of SPI (Depending on how it is connected)
 
@@ -35,8 +40,12 @@ void* sound( void* arg );
 void* manageThread( void* arg );
 void endMelody(void);
 int SpiSetup();
-int GetSpiData(void);
-int SetRes(void);
+void GetSpiData(void);
+int SetRes(int value);
+void InicializeGetData();
+void UninicializeGetData();
+void SaveData();
+void ButtonInterrupt();
 
 bool shutdown = true;
 
@@ -49,8 +58,9 @@ unsigned short result[SAMPLE_NUM];
 
 struct timeval current;
 struct timeval start;
-long us;
-long us2;
+struct timeval startForMeasurment;
+long us = T_us;
+long us2 = T_us;
 
 /*void timer_handler (int signum)
 {
@@ -72,6 +82,8 @@ int main() {
 	wiringPiSetup () ;
 	pinMode (LED, OUTPUT) ;//svetlo
 	pinMode (REPRO, OUTPUT) ;//reprak
+	pullUpDnControl (1, PUD_UP) ;//wpi 1, gpio 18, nejbližší k GPIO
+	wiringPiISR (1, INT_EDGE_FALLING, (*ButtonInterrupt)); //interrupt
 	//for (;;)
 	//{
 		//digitalWrite (LED, HIGH) ;
@@ -181,14 +193,28 @@ void* manageThread( void* arg ){
 				shutdown = false;
 			}
 			break;
+		case START_GET_DATA:
+			printf("Inicialize measurment \n");
+			InicializeGetData();
+			break;
 		case GET_DATA:
 			GetSpiData();
 			break;
+		case END_GET_DATA:
+			printf("Uninicialize measurment \n");
+			UninicializeGetData();
+			break;
+		case SAVE_DATA:
+			printf("Saving data \n");
+			SaveData();
+			break;
 		case SET_RES:
-			SetRes();
-			stav = GET_DATA;
+			printf("Seting resistor \n");
+			SetRes(128);
+			stav = START_GET_DATA;
 			break;
 		default:
+			shutdown = false;
 			delay(50);
 			break;
 		}
@@ -204,7 +230,7 @@ int SpiSetup(){
 		return 1 ;
 	}
 
-	if(wiringPiSPISetup(CHANNEL, 500000) == -1)
+	if(wiringPiSPISetup(CHANNEL, 200000) == -1)
 	{
 		printf("%s \n", "wiringPiSPISetup Failed");
 		return 1 ;
@@ -217,63 +243,72 @@ int SpiSetup(){
 	return 0;
 }
 
-int GetSpiData(void){
-	us = 125;
-	us2 = us;
+void GetSpiData(void){
 
-	gettimeofday(&start, NULL);
+	buffer[0] = 4;	// 8 is channel 2, 4 is channel 1
+	buffer[1] = 0;
+	wiringPiSPIDataRW(CHANNEL, buffer, 2);
+	result[count%SAMPLE_NUM] = (buffer[0] << 8) + buffer[1];
+
+
+	count ++;
+	if (count >= SAMPLE_NUM)
+	{
+		printf ("Number of values: %ld \nNumber of useconds: %ld \n" ,count, (start.tv_usec + start.tv_sec*1000000)-(startForMeasurment.tv_usec + startForMeasurment.tv_sec*1000000));
+		count = 0;
+		stav = END_GET_DATA;
+	}
+
+	do {
+		gettimeofday(&current, NULL);
+	}
+	while( ( current.tv_usec + current.tv_sec*1000000 ) - ( start.tv_usec + start.tv_sec*1000000 ) <= us2 );
+
+	us2=2*us-(( current.tv_usec + current.tv_sec*1000000 ) - ( start.tv_usec + start.tv_sec*1000000 ));
+	start = current;
+}
+
+void InicializeGetData(){
 
 	digitalWrite(CS0, 0);  // Low : CS Active
 	printf("pin 10 setted \n");
-	while(true)
-	{
 
-		buffer[0] = 4;	// 8 is channel 2, 4 is channel 1
-		buffer[1] = 0;
-		wiringPiSPIDataRW(CHANNEL, buffer, 2);
-		result[count] = (buffer[0] << 8) + buffer[1];
+	stav = GET_DATA;
 
-
-		count ++;
-		if (count >= SAMPLE_NUM)
-		{
-			digitalWrite(CS0, 1);  // Low : CS Inactive
-			std::ofstream output_file("/home/pi/test.txt");				//Will overwrite an existing file
-			output_file << result[0];
-			output_file << " ";
-			//printf("%s %i \n", "Result[0] =", result[0]);
-			output_file.close();
-
-			std::ofstream output_file2("/home/pi/test.txt", std::ios_base::app);	//Will append to an existing file
-			for(int i = 1; i < SAMPLE_NUM; i++){
-				output_file2 << result[i];
-				output_file2 << " ";
-			}
-			output_file2.close();
-			//output_file.close();			//(Not strictly necessary as it will get closed when output_file goes out of scope)
-			shutdown = false;
-			printf ("%ld\n", count);
-			count = 0;
-		}
-
-		do {
-			gettimeofday(&current, NULL);
-		}
-		while( ( current.tv_usec + current.tv_sec*1000000 ) - ( start.tv_usec + start.tv_sec*1000000 ) <= us2 );
-
-		us2=2*us-(( current.tv_usec + current.tv_sec*1000000 ) - ( start.tv_usec + start.tv_sec*1000000 ));
-		start = current;
-
-	}
-
-	return 1;
+	gettimeofday(&start, NULL);
+	startForMeasurment = start;
 }
 
-int SetRes(void){
+void UninicializeGetData(){
+	digitalWrite(CS0, 1);  // Low : CS Inactive
+	stav = SAVE_DATA;
+}
+
+void SaveData(){
+
+	std::ofstream output_file("/home/pi/test.txt");				//Will overwrite an existing file
+	output_file << result[0];
+	output_file << " ";
+	//printf("%s %i \n", "Result[0] =", result[0]);
+	output_file.close();
+
+	std::ofstream output_file2("/home/pi/test.txt", std::ios_base::app);	//Will append to an existing file
+	for(int i = 1; i < SAMPLE_NUM; i++){
+		output_file2 << result[i];
+		output_file2 << " ";
+	}
+	output_file2.close();
+	//output_file.close();			//(Not strictly necessary as it will get closed when output_file goes out of scope)
+	//shutdown = false;
+
+	stav = DEFOULT;
+}
+
+int SetRes(int value){
 	digitalWrite(CS1, 0); // SC of MIC1 set active
 	delay(1);
 	buffer[0] = 0b00000000;	// 48 pro psaní, + dva lsb pro nejvyšší data
-	buffer[1] = 128;
+	buffer[1] = (value > 255) ? 255 : value;
 	wiringPiSPIDataRW(CHANNEL, buffer, 2);
 	delay(10);
 	int resultOfSet = (buffer[0] << 8) + buffer[1];
@@ -281,4 +316,8 @@ int SetRes(void){
 	digitalWrite(CS1, 1); // SC of MIC1 set inactive
 
 	return 1;
+}
+
+void ButtonInterrupt(){
+	printf ("%s \n", "Funguju");
 }
